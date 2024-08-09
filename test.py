@@ -126,7 +126,7 @@ def test(KSTEPS=20):
     return ade_,fde_,raw_data_dict
 
 
-paths = ['./checkpoint/*social-stgcnn*']
+paths = ['./checkpoint/*base*']
 KSTEPS=20
 
 print("*"*50)

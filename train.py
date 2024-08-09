@@ -4,7 +4,9 @@ import os
 
 import math
 import sys
-
+import random
+import numpy as np
+import torch
 import torch
 import torch.nn as nn
 import numpy as np
@@ -36,6 +38,7 @@ parser.add_argument('--output_size', type=int, default=5)
 parser.add_argument('--n_stgcnn', type=int, default=1,help='Number of ST-GCNN layers')
 parser.add_argument('--n_txpcnn', type=int, default=5, help='Number of TXPCNN layers')
 parser.add_argument('--kernel_size', type=int, default=3)
+parser.add_argument('--seed', type=int, default=0)
 
 #Data specifc paremeters
 parser.add_argument('--obs_seq_len', type=int, default=8)
@@ -70,6 +73,11 @@ args = parser.parse_args()
 print('*'*30)
 print("Training initiating....")
 print(args)
+
+random.seed(args.seed)
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
 
 
 def graph_loss(V_pred,V_target):

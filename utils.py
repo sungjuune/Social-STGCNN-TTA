@@ -3,6 +3,7 @@ import math
 import sys
 
 import torch
+import pickle
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as Func
@@ -32,7 +33,6 @@ def seq_to_graph(seq_,seq_rel,norm_lap_matr = True):
     seq_len = seq_.shape[2]
     max_nodes = seq_.shape[0]
 
-    
     V = np.zeros((seq_len,max_nodes,2))
     A = np.zeros((seq_len,max_nodes,max_nodes))
     for s in range(seq_len):
@@ -113,12 +113,17 @@ class TrajectoryDataset(Dataset):
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
+
+        txt_files = [x for x in all_files if x.endswith('.txt')]
+        pt_files = [x for x in all_files if x.endswith('.pt')]
+
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
         loss_mask_list = []
         non_linear_ped = []
-        for path in all_files:
+
+        for path in txt_files:
             data = read_file(path, delim)
             frames = np.unique(data[:, 0]).tolist()
             frame_data = []
@@ -133,15 +138,15 @@ class TrajectoryDataset(Dataset):
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1])
                 self.max_peds_in_frame = max(self.max_peds_in_frame,len(peds_in_curr_seq))
                 curr_seq_rel = np.zeros((len(peds_in_curr_seq), 2,
-                                         self.seq_len))
+                                        self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
                 curr_loss_mask = np.zeros((len(peds_in_curr_seq),
-                                           self.seq_len))
+                                        self.seq_len))
                 num_peds_considered = 0
                 _non_linear_ped = []
                 for _, ped_id in enumerate(peds_in_curr_seq):
                     curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] ==
-                                                 ped_id, :]
+                                                ped_id, :]
                     curr_ped_seq = np.around(curr_ped_seq, decimals=4)
                     pad_front = frames.index(curr_ped_seq[0, 0]) - idx
                     pad_end = frames.index(curr_ped_seq[-1, 0]) - idx + 1
@@ -175,41 +180,80 @@ class TrajectoryDataset(Dataset):
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped)
 
-        # Convert numpy -> Torch Tensor
-        self.obs_traj = torch.from_numpy(
-            seq_list[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj = torch.from_numpy(
-            seq_list[:, :, self.obs_len:]).type(torch.float)
-        self.obs_traj_rel = torch.from_numpy(
-            seq_list_rel[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj_rel = torch.from_numpy(
-            seq_list_rel[:, :, self.obs_len:]).type(torch.float)
-        self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
-        self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
-        cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
-        self.seq_start_end = [
-            (start, end)
-            for start, end in zip(cum_start_idx, cum_start_idx[1:])
-        ]
-        #Convert to Graphs 
-        self.v_obs = [] 
-        self.A_obs = [] 
-        self.v_pred = [] 
-        self.A_pred = [] 
-        print("Processing Data .....")
-        pbar = tqdm(total=len(self.seq_start_end)) 
-        for ss in range(len(self.seq_start_end)):
-            pbar.update(1)
+        if len(pt_files) != 0:
+            print(f"*** Loading Preprocessed Data From {self.data_dir} ***")
+            self.obs_traj = torch.load(self.data_dir+'obs_traj.pt')
+            self.pred_traj = torch.load(self.data_dir+'pred_traj.pt')
+            self.obs_traj_rel = torch.load(self.data_dir+'obs_traj_rel.pt')
+            self.pred_traj_rel = torch.load(self.data_dir+'pred_traj_rel.pt')
+            self.loss_mask = torch.load(self.data_dir+'loss_mask.pt')
+            self.non_linear_ped = torch.load(self.data_dir+'non_linear_ped.pt')
 
-            start, end = self.seq_start_end[ss]
+            with open(self.data_dir+'v_obs.pt',"rb") as f:
+                self.v_obs = pickle.load(f)
+            with open(self.data_dir+'v_pred.pt',"rb") as f:
+                self.v_pred = pickle.load(f)
+            with open(self.data_dir+'A_obs.pt',"rb") as f:
+                self.A_obs = pickle.load(f)
+            with open(self.data_dir+'A_pred.pt',"rb") as f:
+                self.A_pred = pickle.load(f)
+            with open(self.data_dir+'seq_start_end.pt',"rb") as f:
+                self.seq_start_end = pickle.load(f)
 
-            v_,a_ = seq_to_graph(self.obs_traj[start:end,:],self.obs_traj_rel[start:end, :],self.norm_lap_matr)
-            self.v_obs.append(v_.clone())
-            self.A_obs.append(a_.clone())
-            v_,a_=seq_to_graph(self.pred_traj[start:end,:],self.pred_traj_rel[start:end, :],self.norm_lap_matr)
-            self.v_pred.append(v_.clone())
-            self.A_pred.append(a_.clone())
-        pbar.close()
+        else:
+            # Convert numpy -> Torch Tensor
+            self.obs_traj = torch.from_numpy(
+                seq_list[:, :, :self.obs_len]).type(torch.float)
+            self.pred_traj = torch.from_numpy(
+                seq_list[:, :, self.obs_len:]).type(torch.float)
+            self.obs_traj_rel = torch.from_numpy(
+                seq_list_rel[:, :, :self.obs_len]).type(torch.float)
+            self.pred_traj_rel = torch.from_numpy(
+                seq_list_rel[:, :, self.obs_len:]).type(torch.float)
+            self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
+            self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
+            cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
+            self.seq_start_end = [
+                (start, end)
+                for start, end in zip(cum_start_idx, cum_start_idx[1:])
+            ]
+
+            self.v_obs = [] 
+            self.A_obs = [] 
+            self.v_pred = [] 
+            self.A_pred = [] 
+            print("Processing Data .....")
+            pbar = tqdm(total=len(self.seq_start_end)) 
+            for ss in range(len(self.seq_start_end)):
+                pbar.update(1)
+
+                start, end = self.seq_start_end[ss]
+
+                v_,a_ = seq_to_graph(self.obs_traj[start:end,:],self.obs_traj_rel[start:end, :],self.norm_lap_matr)
+                self.v_obs.append(v_.clone())
+                self.A_obs.append(a_.clone())
+                v_,a_=seq_to_graph(self.pred_traj[start:end,:],self.pred_traj_rel[start:end, :],self.norm_lap_matr)
+                self.v_pred.append(v_.clone())
+                self.A_pred.append(a_.clone())
+            pbar.close()
+        
+            torch.save(self.obs_traj, self.data_dir+'obs_traj.pt')
+            torch.save(self.pred_traj, self.data_dir+'pred_traj.pt')
+            torch.save(self.obs_traj_rel, self.data_dir+'obs_traj_rel.pt')
+            torch.save(self.pred_traj_rel, self.data_dir+'pred_traj_rel.pt')
+            torch.save(self.non_linear_ped, self.data_dir+'non_linear_ped.pt')
+            torch.save(self.loss_mask, self.data_dir+'loss_mask.pt')
+            
+            with open(self.data_dir+'v_obs.pt',"wb") as f:
+                pickle.dump(self.v_obs, f)
+            with open(self.data_dir+'v_pred.pt',"wb") as f:
+                pickle.dump(self.v_pred, f)
+            with open(self.data_dir+'A_obs.pt',"wb") as f:
+                pickle.dump(self.A_obs, f)
+            with open(self.data_dir+'A_pred.pt',"wb") as f:
+                pickle.dump(self.A_pred, f)
+            with open(self.data_dir+'seq_start_end.pt',"wb") as f:
+                pickle.dump(self.seq_start_end, f)
 
     def __len__(self):
         return self.num_seq
