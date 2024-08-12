@@ -39,6 +39,8 @@ parser.add_argument('--n_stgcnn', type=int, default=1,help='Number of ST-GCNN la
 parser.add_argument('--n_txpcnn', type=int, default=5, help='Number of TXPCNN layers')
 parser.add_argument('--kernel_size', type=int, default=3)
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--source', default=False)
+parser.add_argument('--full_train', type=bool, default=False)
 
 #Data specifc paremeters
 parser.add_argument('--obs_seq_len', type=int, default=8)
@@ -86,7 +88,20 @@ def graph_loss(V_pred,V_target):
 #Data prep     
 obs_seq_len = args.obs_seq_len
 pred_seq_len = args.pred_seq_len
-data_set = './datasets/'+args.dataset+'/'
+
+
+# if args.source==False:
+#     print("Leave-one-out Training Initialized")
+#     data_set = './datasets/'+args.dataset+'/'
+
+# if args.source==True and args.full_train==False:
+#     print("Source-to-Source Training Initialized")
+#     data_set = './datasets_source/'+args.dataset+'/'
+
+# if args.source==True and args.full_train==True:
+print("Source(***Full***)-to-Source Training Initialized")
+data_set = './datasets_source_full/'+args.dataset+'/'
+    
 
 dset_train = TrajectoryDataset(
         data_set+'train/',
@@ -269,7 +284,7 @@ for epoch in range(args.num_epochs):
         scheduler.step()
 
 
-    print('*'*30)
+    print('*'*60)
     print('Epoch:',args.tag,":", epoch)
     for k,v in metrics.items():
         if len(v)>0:
@@ -277,7 +292,7 @@ for epoch in range(args.num_epochs):
 
 
     print(constant_metrics)
-    print('*'*30)
+    print('*'*60)
     
     with open(checkpoint_dir+'metrics.pkl', 'wb') as fp:
         pickle.dump(metrics, fp)
