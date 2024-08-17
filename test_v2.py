@@ -11,8 +11,42 @@ import glob
 import torch.distributions.multivariate_normal as torchdist
 from utils import * 
 from metrics import * 
+import random
 from model import social_stgcnn
 import copy
+from torch.distributions import Normal
+import matplotlib.pyplot as plt
+
+
+
+
+
+def gaussian_model(prediction):
+    prediction = prediction.permute(0,2,3,1).squeeze()
+
+    sx = torch.exp(prediction[:,:,2]) #sx
+    sy = torch.exp(prediction[:,:,3]) #sy
+
+    corr = torch.tanh(prediction[:,:,4]) #corr
+    cov = torch.zeros(prediction.shape[0],prediction.shape[1],2,2).cuda()
+    cov[:,:,0,0]= sx*sx
+    cov[:,:,0,1]= corr*sx*sy
+    cov[:,:,1,0]= corr*sx*sy
+    cov[:,:,1,1]= sy*sy
+    mean = prediction[:,:,0:2]
+
+    mvnormal = torchdist.MultivariateNormal(mean,cov)
+
+    return mvnormal.entropy().mean() 
+    
+
+
+@torch.enable_grad()
+def forward_and_adapt(V, A, model):
+    output,_ = model(V,A)
+    entropy = gaussian_model(output)
+    return output, entropy
+
 
 def test(KSTEPS=20):
     global loader_test,model
@@ -21,6 +55,18 @@ def test(KSTEPS=20):
     fde_bigls = []
     raw_data_dict = {}
     step =0 
+
+    params = []
+    names = []
+    for nm, m in model.named_modules():
+        if isinstance(m, nn.Conv2d):
+            for np, p in m.named_parameters():
+                if np in ['weight', 'bias']:  # weight is scale, bias is shift
+                    params.append(p)
+                    names.append(f"{nm}.{np}")
+
+    optimizer = optim.SGD(params, lr=0.001)
+
     for batch in loader_test: 
         step+=1
         #Get data
@@ -36,10 +82,17 @@ def test(KSTEPS=20):
         #V_obs_tmp = batch,feat,seq,node
         V_obs_tmp =V_obs.permute(0,3,1,2)
 
-        V_pred,_ = model(V_obs_tmp,A_obs.squeeze())
-        # print(V_pred.shape)
-        # torch.Size([1, 5, 12, 2])
-        # torch.Size([12, 2, 5])
+
+        V_pred, entropy = forward_and_adapt(V_obs_tmp, A_obs.squeeze(), model)
+        if step <5:
+            entropy.backward()
+            optimizer.step()
+            optimizer.zero_grad() 
+
+        # print(prompt_addition.params[0])
+            
+
+        # V_pred,_ = model(V_obs_tmp,A_obs.squeeze())
         V_pred = V_pred.permute(0,2,3,1)
         # torch.Size([1, 12, 2, 5])>>seq,node,feat
         # V_pred= torch.rand_like(V_tr).cuda()
@@ -50,7 +103,7 @@ def test(KSTEPS=20):
         V_pred = V_pred.squeeze()
         num_of_objs = obs_traj_rel.shape[1]
         V_pred,V_tr =  V_pred[:,:num_of_objs,:],V_tr[:,:num_of_objs,:]
-        #print(V_pred.shape)
+
 
         #For now I have my bi-variate parameters 
         #normx =  V_pred[:,:,0:1]
@@ -65,11 +118,35 @@ def test(KSTEPS=20):
         cov[:,:,1,0]= corr*sx*sy
         cov[:,:,1,1]= sy*sy
         mean = V_pred[:,:,0:2]
+        print(V_pred)
+        asd
         
+        # V_pred = torch.randn(12,2,9)
+        # sx = torch.exp(V_pred[:,:,3]) #sx
+        # sy = torch.exp(V_pred[:,:,4]) #sy
+        # sz = torch.exp(V_pred[:,:,5]) #sz
+        # corr_xy = torch.tanh(V_pred[:,:,6]) #corr
+        # corr_xz = torch.tanh(V_pred[:,:,7]) #corr
+        # corr_yz = torch.tanh(V_pred[:,:,8]) #corr
 
+        # cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],3,3).cuda()
+        # cov[:,:,0,0]= sx*sx
+        # cov[:,:,0,1]= corr_xy*sx*sy
+        # cov[:,:,0,2]= corr_xz*sx*sz
+
+        # cov[:,:,1,0]= corr_xy*sx*sy
+        # cov[:,:,1,1]= sy*sy
+        # cov[:,:,1,2]= corr_yz*sy*sz
+
+        # cov[:,:,2,0]= corr_xz*sx*sz
+        # cov[:,:,2,1]= corr_yz*sy*sz
+        # cov[:,:,2,2]= sz*sz
+
+        # mean = V_pred[:,:,0:3]
 
 
         mvnormal = torchdist.MultivariateNormal(mean,cov)
+        print(mvnormal)
 
 
         ### Rel to abs 
@@ -136,7 +213,10 @@ print("*"*50)
 print('Number of samples:',KSTEPS)
 print("*"*50)
 
-
+random.seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
+torch.cuda.manual_seed_all(0)
 
 
 for feta in range(len(paths)):
@@ -203,5 +283,5 @@ for feta in range(len(paths)):
 
     print("*"*50)
 
-    print("Avg ADE:",sum(ade_ls)/5)
-    print("Avg FDE:",sum(fde_ls)/5)
+    print("Avg ADE:",sum(ade_ls)/len(paths))
+    print("Avg FDE:",sum(fde_ls)/len(paths))
