@@ -133,7 +133,6 @@ def trivariate_loss(V_pred,V_trgt):
 
     # Negative log likelihood
     nll = -torch.mean(log_likelihood)
-    # print(nll)
 
     return nll
 
